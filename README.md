@@ -32,6 +32,22 @@ The menu icon is `⇪` while the daemon is running and `⇪!` otherwise. Its men
 can reload the VirtualHID driver, restart the root daemon, and open the shared
 configuration in Terminal using `EDITOR` (with an administrator prompt).
 
+### Check and repair installation
+
+Use the doctor command after installation or an upgrade:
+
+```sh
+capshift doctor
+capshift doctor --fix
+```
+
+`--fix` installs the VirtualHID cask if needed, repairs and reloads the root
+VirtualHID LaunchDaemon, starts the root capshift service, and installs the
+menu LaunchAgent for the logged-in user. It asks for administrator permission
+only for system-level actions. macOS still requires you to approve the
+DriverKit extension and grant Accessibility permission yourself; doctor
+reports those requirements but cannot bypass them.
+
 ## Configuration
 
 The root daemon always reads the system-wide file

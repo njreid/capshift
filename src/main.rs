@@ -7,6 +7,8 @@ mod actions;
 mod apps;
 mod chord;
 mod config;
+#[cfg(target_os = "macos")]
+mod doctor;
 mod keycodes;
 mod kvhd;
 #[cfg(target_os = "macos")]
@@ -34,6 +36,12 @@ enum Command {
     },
     /// Run the per-user macOS menu-bar companion.
     Menu,
+    /// Check capshift's macOS dependencies and startup services.
+    Doctor {
+        /// Install or repair everything that can be fixed automatically.
+        #[arg(long)]
+        fix: bool,
+    },
 }
 
 #[tokio::main]
@@ -54,6 +62,12 @@ async fn main() -> Result<()> {
             return menubar::run();
             #[cfg(not(target_os = "macos"))]
             anyhow::bail!("capshift-menu only supports macOS");
+        }
+        Some(Command::Doctor { fix }) => {
+            #[cfg(target_os = "macos")]
+            return doctor::run(fix);
+            #[cfg(not(target_os = "macos"))]
+            anyhow::bail!("capshift doctor only supports macOS");
         }
         None => {}
     }
