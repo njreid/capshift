@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
         }
         Some(Command::Menu) => {
             #[cfg(target_os = "macos")]
-            return menu::run();
+            return menubar::run();
             #[cfg(not(target_os = "macos"))]
             anyhow::bail!("capshift-menu only supports macOS");
         }

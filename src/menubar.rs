@@ -10,10 +10,10 @@ use cocoa::{
         NSApp, NSApplication, NSApplicationActivationPolicyAccessory, NSMenu, NSMenuItem,
         NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
     },
-    base::{id, nil, NSObject, YES},
-    foundation::{NSAutoreleasePool, NSString, NSTimer},
+    base::{id, nil, YES},
+    foundation::{NSAutoreleasePool, NSString},
 };
-use objc::runtime::{Class, Object, Sel};
+use objc::runtime::{Object, Sel};
 use objc::{class, declare::ClassDecl, msg_send, sel, sel_impl};
 use std::process::Command;
 use std::sync::Once;
@@ -49,14 +49,8 @@ pub fn run() -> Result<()> {
 
         // Keep the icon truthful even when the root daemon exits or is restarted
         // outside this menu.
-        let _ = NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
-            nil,
-            5.0,
-            handler,
-            sel!(refreshStatus:),
-            nil,
-            YES,
-        );
+        let _: id = msg_send![class!(NSTimer), scheduledTimerWithTimeInterval: 5.0f64
+            target: handler selector: sel!(refreshStatus:) userInfo: nil repeats: YES];
 
         app.run();
     }
