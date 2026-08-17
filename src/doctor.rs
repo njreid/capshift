@@ -4,12 +4,9 @@ use anyhow::{bail, Context, Result};
 use std::{
     path::{Path, PathBuf},
     process::Command,
+    thread,
+    time::Duration,
 };
-
-#[link(name = "ApplicationServices", kind = "framework")]
-extern "C" {
-    fn AXIsProcessTrusted() -> bool;
-}
 
 const DRIVER_CASK: &str = "njreid/capshift/karabiner-driverkit-virtualhiddevice";
 const KVHD_LABEL: &str = "dev.njreid.capshift.kvhd";
@@ -18,8 +15,8 @@ const KVHD_PLIST: &str = "dev.njreid.capshift.kvhd.plist";
 const MENU_PLIST: &str = "dev.njreid.capshift-menu.plist";
 const DRIVER_DAEMON: &str = "/Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon";
 const DRIVER_MANAGER: &str = "/Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager";
-const ACCESSIBILITY_PANE: &str =
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+const INPUT_MONITORING_PANE: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
 
 pub fn run(fix: bool) -> Result<()> {
     println!("capshift doctor{}", if fix { " --fix" } else { "" });
@@ -65,16 +62,20 @@ pub fn run(fix: bool) -> Result<()> {
         println!("✓ VirtualHID root LaunchDaemon is running");
     }
 
-    let daemon_loaded = launchd_loaded("system/homebrew.mxcl.capshift");
-    if !daemon_loaded {
+    let daemon_domain = "system/homebrew.mxcl.capshift";
+    let daemon_ready = Path::new(crate::hid::READY_FILE).exists();
+    if !launchd_running(daemon_domain) || !daemon_ready {
         healthy = false;
-        println!("✗ capshift root service is not loaded");
+        println!("✗ capshift root service is not ready to intercept keyboards");
         if fix {
-            run_privileged("brew services start capshift")?;
-            println!("  started capshift root service");
+            restart_capshift_service()?;
+            thread::sleep(Duration::from_secs(2));
+            if Path::new(crate::hid::READY_FILE).exists() {
+                println!("  restarted capshift root service");
+            }
         }
     } else {
-        println!("✓ capshift root service is loaded");
+        println!("✓ capshift root service is running and intercepting keyboards");
     }
 
     let menu_destination = user_launch_agents_dir()?.join(MENU_PLIST);
@@ -100,14 +101,14 @@ pub fn run(fix: bool) -> Result<()> {
         println!("✗ shared configuration is missing: {}", config.display());
         if fix {
             // Starting the root service creates the documented starter config.
-            run_privileged("brew services restart capshift")?;
+            restart_capshift_service()?;
             println!("  started capshift so it can create its starter config");
         }
     } else {
         println!("✓ shared configuration exists: {}", config.display());
     }
 
-    accessibility_guidance(fix, &mut healthy)?;
+    input_monitoring_guidance(fix, &mut healthy)?;
 
     if healthy && !fix {
         println!("All repairable capshift dependencies are healthy.");
@@ -117,34 +118,47 @@ pub fn run(fix: bool) -> Result<()> {
     Ok(())
 }
 
-fn accessibility_guidance(fix: bool, healthy: &mut bool) -> Result<()> {
+fn input_monitoring_guidance(fix: bool, healthy: &mut bool) -> Result<()> {
     let prefix = Command::new("brew")
         .args(["--prefix", "capshift"])
         .output()
-        .context("locating capshift for Accessibility guidance")?;
+        .context("locating capshift for Input Monitoring guidance")?;
     if !prefix.status.success() {
-        bail!("could not locate capshift for Accessibility guidance");
+        bail!("could not locate capshift for Input Monitoring guidance");
     }
     let prefix = PathBuf::from(String::from_utf8(prefix.stdout)?.trim());
-    if unsafe { AXIsProcessTrusted() } {
-        println!("✓ Accessibility permission is granted to capshift");
-    } else {
+    if !Path::new(crate::hid::READY_FILE).exists() {
         *healthy = false;
-        println!("✗ Accessibility permission is not granted to capshift");
+        println!("! Input Monitoring may be blocking capshift.");
         println!(
-            "  Add these applications in System Settings → Privacy & Security → Accessibility:"
+            "  Add this application in System Settings → Privacy & Security → Input Monitoring:"
         );
         println!("  {}", prefix.join("bin/capshift").display());
-        println!("  {}", prefix.join("bin/capshift-menu").display());
     }
-    if fix && !unsafe { AXIsProcessTrusted() } {
+    if fix && !Path::new(crate::hid::READY_FILE).exists() {
         Command::new("open")
-            .arg(ACCESSIBILITY_PANE)
+            .arg(INPUT_MONITORING_PANE)
             .status()
-            .context("opening the Accessibility settings pane")?;
-        println!("  opened the Accessibility settings pane");
+            .context("opening the Input Monitoring settings pane")?;
+        println!("  opened the Input Monitoring settings pane");
     }
     Ok(())
+}
+
+fn restart_capshift_service() -> Result<()> {
+    let brew = brew_executable()?;
+    run_privileged(&format!("{} services restart capshift", shell_quote(&brew)))
+}
+
+fn brew_executable() -> Result<PathBuf> {
+    let output = Command::new("brew")
+        .arg("--prefix")
+        .output()
+        .context("locating Homebrew")?;
+    if !output.status.success() {
+        bail!("could not locate Homebrew")
+    }
+    Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()).join("bin/brew"))
 }
 
 fn installed_resources() -> Result<PathBuf> {

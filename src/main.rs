@@ -80,6 +80,7 @@ async fn main() -> Result<()> {
 
     #[cfg(target_os = "macos")]
     {
+        let _ = std::fs::remove_file(hid::READY_FILE);
         let cfg_rx = config::watch()?;
         info!("config: {}", config::config_path()?.display());
 

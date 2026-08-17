@@ -12,8 +12,8 @@
 ///
 /// - Karabiner-Elements must be installed and running (provides the virtual
 ///   HID keyboard driver).
-/// - The binary must have Accessibility permission (System Settings ->
-///   Privacy & Security -> Accessibility) for the exclusive device seize.
+/// - The binary must have Input Monitoring permission (System Settings ->
+///   Privacy & Security -> Input Monitoring) for the exclusive device seize.
 ///
 /// # Thread model
 ///
@@ -48,6 +48,7 @@ const kIOHIDOptionsTypeSeizeDevice: u32 = 0x1;
 const kHIDPage_GenericDesktop: u32 = 0x01;
 const kHIDPage_KeyboardOrKeypad: u32 = 0x07;
 const kHIDUsage_GD_Keyboard: u32 = 0x06;
+pub const READY_FILE: &str = "/var/run/capshift.ready";
 
 type IOHIDDeviceCallback = unsafe extern "C" fn(
     context: *mut c_void,
@@ -404,6 +405,8 @@ pub fn run(cfg_rx: watch::Receiver<BindingMap>) -> Result<()> {
         if ret != kIOReturnSuccess {
             bail!("IOHIDManagerOpen failed: {ret:#x}");
         }
+        std::fs::write(READY_FILE, b"ready\n")
+            .context("recording successful keyboard interception startup")?;
         mgr
     };
 

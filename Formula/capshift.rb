@@ -47,7 +47,7 @@ class Capshift < Formula
         cp "#{opt_pkgshare}/dev.njreid.capshift-menu.plist" ~/Library/LaunchAgents/
         launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.njreid.capshift-menu.plist
 
-      Allow capshift in System Settings → Privacy & Security → Accessibility.
+      Allow capshift in System Settings → Privacy & Security → Input Monitoring.
     EOS
   end
 

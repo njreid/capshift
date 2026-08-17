@@ -25,8 +25,10 @@ cp /opt/homebrew/opt/capshift/share/capshift/dev.njreid.capshift-menu.plist ~/Li
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.njreid.capshift-menu.plist
 ```
 
-Approve the DriverKit extension when macOS asks, and add `capshift` to
-**System Settings → Privacy & Security → Accessibility**.
+Approve the DriverKit extension when macOS asks, then add `capshift` to
+**System Settings → Privacy & Security → Input Monitoring**. The keyboard
+interceptor must remain root-owned because the VirtualHID daemon accepts only
+root clients; the separate menu-bar companion runs in your login session.
 
 The menu icon is `⇪` while the daemon is running and `⇪!` otherwise. Its menu
 can reload the VirtualHID driver, restart the root daemon, and open the shared
@@ -45,10 +47,9 @@ capshift doctor --fix
 VirtualHID LaunchDaemon, starts the root capshift service, and installs the
 menu LaunchAgent for the logged-in user. It asks for administrator permission
 only for system-level actions. macOS still requires you to approve the
-DriverKit extension and grant Accessibility permission yourself; doctor
-reports those requirements but cannot bypass them. It opens the exact
-Accessibility pane and prints the installed `capshift` and `capshift-menu`
-paths to add.
+DriverKit extension and grant **Input Monitoring** permission to `capshift`;
+doctor reports an unsuccessful keyboard interception, opens that settings pane,
+and prints the exact application path to add.
 
 ## Configuration
 
