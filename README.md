@@ -46,7 +46,9 @@ VirtualHID LaunchDaemon, starts the root capshift service, and installs the
 menu LaunchAgent for the logged-in user. It asks for administrator permission
 only for system-level actions. macOS still requires you to approve the
 DriverKit extension and grant Accessibility permission yourself; doctor
-reports those requirements but cannot bypass them.
+reports those requirements but cannot bypass them. It opens the exact
+Accessibility pane and prints the installed `capshift` and `capshift-menu`
+paths to add.
 
 ## Configuration
 

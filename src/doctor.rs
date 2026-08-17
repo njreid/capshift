@@ -12,6 +12,8 @@ const MENU_LABEL: &str = "dev.njreid.capshift-menu";
 const KVHD_PLIST: &str = "dev.njreid.capshift.kvhd.plist";
 const MENU_PLIST: &str = "dev.njreid.capshift-menu.plist";
 const DRIVER_DAEMON: &str = "/Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon";
+const ACCESSIBILITY_PANE: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 
 pub fn run(fix: bool) -> Result<()> {
     println!("capshift doctor{}", if fix { " --fix" } else { "" });
@@ -89,12 +91,34 @@ pub fn run(fix: bool) -> Result<()> {
     }
 
     println!("! DriverKit extension approval cannot be automated. Check System Settings → Privacy & Security if the driver is not active.");
-    println!("! Accessibility permission cannot be automated. Add capshift in System Settings → Privacy & Security → Accessibility.");
+    accessibility_guidance(fix)?;
 
     if healthy && !fix {
         println!("All repairable capshift dependencies are healthy.");
     } else if !fix {
         println!("Run `capshift doctor --fix` to repair the items above.");
+    }
+    Ok(())
+}
+
+fn accessibility_guidance(fix: bool) -> Result<()> {
+    let prefix = Command::new("brew")
+        .args(["--prefix", "capshift"])
+        .output()
+        .context("locating capshift for Accessibility guidance")?;
+    if !prefix.status.success() {
+        bail!("could not locate capshift for Accessibility guidance");
+    }
+    let prefix = PathBuf::from(String::from_utf8(prefix.stdout)?.trim());
+    println!("! Accessibility permission cannot be automated. Add these applications in System Settings → Privacy & Security → Accessibility:");
+    println!("  {}", prefix.join("bin/capshift").display());
+    println!("  {}", prefix.join("bin/capshift-menu").display());
+    if fix {
+        Command::new("open")
+            .arg(ACCESSIBILITY_PANE)
+            .status()
+            .context("opening the Accessibility settings pane")?;
+        println!("  opened the Accessibility settings pane");
     }
     Ok(())
 }
