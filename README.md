@@ -59,7 +59,7 @@ before starting the daemon:
 
 ```sh
 sudo mkdir -p "/Library/Application Support/capshift"
-sudo "${EDITOR:-vi}" "/Library/Application Support/capshift/config.kdl"
+/bin/sh -lc 'sudo "${EDITOR:-vi}" "/Library/Application Support/capshift/config.kdl"'
 ```
 
 Here is a complete example. Changes are applied automatically when saved.

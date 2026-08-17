@@ -128,10 +128,13 @@ extern "C" fn restart_daemon(_: &Object, _: Sel, _: id) {
 }
 
 extern "C" fn edit_config(_: &Object, _: Sel, _: id) {
-    // Terminal expands EDITOR in the user's login shell. `sudo` provides the
-    // write permission required for the system-wide daemon configuration.
-    let command =
-        format!("sudo \"${{EDITOR:-vi}}\" \"{CONFIG_PATH}\"; exec \"${{SHELL:-/bin/zsh}}\" -l");
+    // Terminal may be configured to start fish (or another non-POSIX shell).
+    // Run the command through /bin/sh so the ${VAR:-default} expansions are
+    // reliable, while preserving EDITOR and SHELL from the terminal session.
+    // `sudo` provides the write permission for the system-wide configuration.
+    let command = format!(
+        "/bin/sh -lc 'sudo \"${{EDITOR:-vi}}\" \"{CONFIG_PATH}\"; exec \"${{SHELL:-/bin/zsh}}\" -l'"
+    );
     let script = format!("tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate", applescript_escape(&command));
     let _ = Command::new("osascript").args(["-e", &script]).status();
 }
