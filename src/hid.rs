@@ -22,7 +22,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
