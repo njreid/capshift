@@ -1,6 +1,6 @@
 [package]
 name        = "capshift"
-version     = "0.2.5"
+version     = "0.2.6"
 edition     = "2021"
 description = "Caps-lock chord shortcut daemon for macOS — app launch/focus and key remaps"
 license     = "GPL-3.0"

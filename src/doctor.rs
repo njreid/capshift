@@ -6,6 +6,11 @@ use std::{
     process::Command,
 };
 
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+}
+
 const DRIVER_CASK: &str = "njreid/capshift/karabiner-driverkit-virtualhiddevice";
 const KVHD_LABEL: &str = "dev.njreid.capshift.kvhd";
 const MENU_LABEL: &str = "dev.njreid.capshift-menu";
@@ -40,16 +45,17 @@ pub fn run(fix: bool) -> Result<()> {
     }
 
     let kvhd_destination = Path::new("/Library/LaunchDaemons").join(KVHD_PLIST);
-    let kvhd_loaded = launchd_loaded(&format!("system/{KVHD_LABEL}"));
-    if !kvhd_destination.exists() || !kvhd_loaded {
+    let kvhd_domain = format!("system/{KVHD_LABEL}");
+    let kvhd_running = launchd_running(&kvhd_domain);
+    if !kvhd_destination.exists() || !kvhd_running {
         healthy = false;
-        println!("✗ VirtualHID root LaunchDaemon is not installed and loaded");
+        println!("✗ VirtualHID root LaunchDaemon is not running");
         if fix {
             install_kvhd(&resources.join(KVHD_PLIST), &kvhd_destination)?;
             println!("  repaired VirtualHID root LaunchDaemon");
         }
     } else {
-        println!("✓ VirtualHID root LaunchDaemon is installed and loaded");
+        println!("✓ VirtualHID root LaunchDaemon is running");
     }
 
     let daemon_loaded = launchd_loaded("system/homebrew.mxcl.capshift");
@@ -94,8 +100,7 @@ pub fn run(fix: bool) -> Result<()> {
         println!("✓ shared configuration exists: {}", config.display());
     }
 
-    println!("! DriverKit extension approval cannot be automated. Check System Settings → Privacy & Security if the driver is not active.");
-    accessibility_guidance(fix)?;
+    accessibility_guidance(fix, &mut healthy)?;
 
     if healthy && !fix {
         println!("All repairable capshift dependencies are healthy.");
@@ -105,7 +110,7 @@ pub fn run(fix: bool) -> Result<()> {
     Ok(())
 }
 
-fn accessibility_guidance(fix: bool) -> Result<()> {
+fn accessibility_guidance(fix: bool, healthy: &mut bool) -> Result<()> {
     let prefix = Command::new("brew")
         .args(["--prefix", "capshift"])
         .output()
@@ -114,10 +119,18 @@ fn accessibility_guidance(fix: bool) -> Result<()> {
         bail!("could not locate capshift for Accessibility guidance");
     }
     let prefix = PathBuf::from(String::from_utf8(prefix.stdout)?.trim());
-    println!("! Accessibility permission cannot be automated. Add these applications in System Settings → Privacy & Security → Accessibility:");
-    println!("  {}", prefix.join("bin/capshift").display());
-    println!("  {}", prefix.join("bin/capshift-menu").display());
-    if fix {
+    if unsafe { AXIsProcessTrusted() } {
+        println!("✓ Accessibility permission is granted to capshift");
+    } else {
+        *healthy = false;
+        println!("✗ Accessibility permission is not granted to capshift");
+        println!(
+            "  Add these applications in System Settings → Privacy & Security → Accessibility:"
+        );
+        println!("  {}", prefix.join("bin/capshift").display());
+        println!("  {}", prefix.join("bin/capshift-menu").display());
+    }
+    if fix && !unsafe { AXIsProcessTrusted() } {
         Command::new("open")
             .arg(ACCESSIBILITY_PANE)
             .status()
@@ -152,6 +165,16 @@ fn launchd_loaded(domain: &str) -> bool {
         .args(["print", domain])
         .status()
         .is_ok_and(|status| status.success())
+}
+
+fn launchd_running(domain: &str) -> bool {
+    Command::new("launchctl")
+        .args(["print", domain])
+        .output()
+        .is_ok_and(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains("state = running")
+        })
 }
 
 fn install_kvhd(source: &Path, destination: &Path) -> Result<()> {
