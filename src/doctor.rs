@@ -17,6 +17,7 @@ const MENU_LABEL: &str = "dev.njreid.capshift-menu";
 const KVHD_PLIST: &str = "dev.njreid.capshift.kvhd.plist";
 const MENU_PLIST: &str = "dev.njreid.capshift-menu.plist";
 const DRIVER_DAEMON: &str = "/Library/Application Support/org.pqrs/Karabiner-DriverKit-VirtualHIDDevice/Applications/Karabiner-VirtualHIDDevice-Daemon.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Daemon";
+const DRIVER_MANAGER: &str = "/Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager";
 const ACCESSIBILITY_PANE: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 
@@ -40,6 +41,10 @@ pub fn run(fix: bool) -> Result<()> {
     if !Path::new(DRIVER_DAEMON).exists() {
         healthy = false;
         println!("✗ Karabiner VirtualHID daemon executable is missing");
+        if fix {
+            println!("  reinstalling VirtualHID driver cask…");
+            run_command("brew", ["reinstall", "--cask", DRIVER_CASK])?;
+        }
     } else {
         println!("✓ Karabiner VirtualHID daemon executable is present");
     }
@@ -51,6 +56,8 @@ pub fn run(fix: bool) -> Result<()> {
         healthy = false;
         println!("✗ VirtualHID root LaunchDaemon is not running");
         if fix {
+            ensure_driver_available()?;
+            activate_driver()?;
             install_kvhd(&resources.join(KVHD_PLIST), &kvhd_destination)?;
             println!("  repaired VirtualHID root LaunchDaemon");
         }
@@ -156,15 +163,33 @@ fn installed_resources() -> Result<PathBuf> {
 fn cask_installed() -> bool {
     Command::new("brew")
         .args(["list", "--cask", "karabiner-driverkit-virtualhiddevice"])
-        .status()
-        .is_ok_and(|status| status.success())
+        .output()
+        .is_ok_and(|output| output.status.success())
 }
 
 fn launchd_loaded(domain: &str) -> bool {
     Command::new("launchctl")
         .args(["print", domain])
-        .status()
-        .is_ok_and(|status| status.success())
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+fn ensure_driver_available() -> Result<()> {
+    if Path::new(DRIVER_DAEMON).exists() {
+        Ok(())
+    } else {
+        bail!("VirtualHID daemon is still missing after reinstall; inspect the cask installation")
+    }
+}
+
+fn activate_driver() -> Result<()> {
+    if !Path::new(DRIVER_MANAGER).exists() {
+        bail!("VirtualHID driver manager is missing: {DRIVER_MANAGER}")
+    }
+    run_privileged(&format!(
+        "{} activate",
+        shell_quote(Path::new(DRIVER_MANAGER))
+    ))
 }
 
 fn launchd_running(domain: &str) -> bool {
