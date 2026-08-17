@@ -1,0 +1,35 @@
+[package]
+name        = "capshift"
+version     = "0.2.0"
+edition     = "2021"
+description = "Caps-lock chord shortcut daemon for macOS — app launch/focus and key remaps"
+license     = "GPL-3.0"
+
+[[bin]]
+name = "capshift"
+path = "src/main.rs"
+
+[[bin]]
+name = "capshift-menu"
+path = "src/menu_main.rs"
+
+[dependencies]
+tokio  = { version = "1", features = ["full"] }
+anyhow = "1"
+
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+clap = { version = "4", features = ["derive"] }
+kdl  = { version = "6" }
+
+# Use macOS FSEvents rather than notify's kqueue backend. FSEvents watches the
+# containing directory, so atomic editor saves are handled without polling.
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.26"
+objc = "0.2"
+
+[dev-dependencies]
+tokio-test = { version = "0.4" }

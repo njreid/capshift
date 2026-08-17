@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Apple Silicon release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --target aarch64-apple-darwin --locked
+      - name: Package
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          archive="capshift-${version}-aarch64-apple-darwin.tar.gz"
+          mkdir pkg
+          cp target/aarch64-apple-darwin/release/capshift pkg/
+          cp target/aarch64-apple-darwin/release/capshift-menu pkg/
+          cp resources/dev.njreid.capshift.kvhd.plist pkg/
+          cp resources/dev.njreid.capshift-menu.plist pkg/
+          tar -czf "$archive" -C pkg .
+          shasum -a 256 "$archive" | tee "$archive.sha256"
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*.tar.gz
+          generate_release_notes: true
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          test -n "$HOMEBREW_TAP_TOKEN" || { echo "HOMEBREW_TAP_TOKEN is not configured" >&2; exit 1; }
+          version="${VERSION#v}"
+          sha256=$(awk '{print $1}' dist/release/*.sha256)
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/njreid/homebrew-capshift.git" tap
+          cp Formula/capshift.rb tap/Formula/capshift.rb
+          cd tap
+          sed -i "s/version \".*\"/version \"${version}\"/" Formula/capshift.rb
+          sed -i "s/sha256 \"[0-9a-f]*\"/sha256 \"${sha256}\"/" Formula/capshift.rb
+          git config user.name "capshift release CI"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/capshift.rb
+          git diff --cached --quiet || git commit -m "capshift ${version}"
+          git push
