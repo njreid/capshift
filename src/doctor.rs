@@ -66,15 +66,19 @@ pub fn run(fix: bool) -> Result<()> {
 
     let menu_destination = user_launch_agents_dir()?.join(MENU_PLIST);
     let menu_domain = format!("gui/{}/{}", uid()?, MENU_LABEL);
-    if !menu_destination.exists() || !launchd_loaded(&menu_domain) {
+    let menu_healthy = menu_destination.exists() && launchd_loaded(&menu_domain);
+    if !menu_healthy {
         healthy = false;
         println!("✗ menu-bar LaunchAgent is not installed and loaded");
-        if fix {
-            install_menu(&resources.join(MENU_PLIST), &menu_destination)?;
-            println!("  repaired menu-bar LaunchAgent");
-        }
     } else {
         println!("✓ menu-bar LaunchAgent is installed and loaded");
+    }
+    // Reload even a healthy agent on --fix so an upgraded capshift-menu binary
+    // replaces the currently running process (the LaunchAgent uses Homebrew's
+    // stable opt path, but an already-running process keeps its old binary).
+    if fix {
+        install_menu(&resources.join(MENU_PLIST), &menu_destination)?;
+        println!("  reloaded menu-bar LaunchAgent");
     }
 
     let config = Path::new(crate::config::SYSTEM_CONFIG_PATH);

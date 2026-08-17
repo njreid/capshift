@@ -120,13 +120,11 @@ unsafe fn register_handler() {
 }
 
 extern "C" fn reload_driver(_: &Object, _: Sel, _: id) {
-    let _ = run_privileged(&format!("launchctl kickstart -k system/{DRIVER_LABEL}"));
-    unsafe { refresh_status() };
+    launch_privileged(format!("launchctl kickstart -k system/{DRIVER_LABEL}"));
 }
 
 extern "C" fn restart_daemon(_: &Object, _: Sel, _: id) {
-    let _ = run_privileged(&format!("launchctl kickstart -k system/{DAEMON_LABEL}"));
-    unsafe { refresh_status() };
+    launch_privileged(format!("launchctl kickstart -k system/{DAEMON_LABEL}"));
 }
 
 extern "C" fn edit_config(_: &Object, _: Sel, _: id) {
@@ -140,6 +138,18 @@ extern "C" fn edit_config(_: &Object, _: Sel, _: id) {
 
 extern "C" fn refresh_status_timer(_: &Object, _: Sel, _: id) {
     unsafe { refresh_status() };
+}
+
+/// Never block or unwind through an AppKit selector callback. `osascript`
+/// displays an administrator prompt and can wait indefinitely for user input;
+/// doing that on the menu bar's main thread makes macOS treat the agent as
+/// unresponsive. The repeating status timer updates the icon after completion.
+fn launch_privileged(command: String) {
+    std::thread::spawn(move || {
+        if let Err(error) = run_privileged(&command) {
+            eprintln!("capshift-menu: {error:#}");
+        }
+    });
 }
 
 fn run_privileged(command: &str) -> Result<()> {
