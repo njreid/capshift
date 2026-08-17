@@ -24,7 +24,7 @@ pub fn run(fix: bool) -> Result<()> {
         println!("✗ VirtualHID driver cask is not installed");
         if fix {
             println!("  installing {DRIVER_CASK}…");
-            run("brew", ["install", "--cask", DRIVER_CASK])?;
+            run_command("brew", ["install", "--cask", DRIVER_CASK])?;
         }
     } else {
         println!("✓ VirtualHID driver cask is installed");
@@ -172,7 +172,7 @@ fn ensure_resource(path: &Path) -> Result<()> {
     }
 }
 
-fn run(program: &str, args: impl IntoIterator<Item = &'static str>) -> Result<()> {
+fn run_command(program: &str, args: impl IntoIterator<Item = &'static str>) -> Result<()> {
     let status = Command::new(program)
         .args(args)
         .status()
