@@ -88,10 +88,19 @@ unsafe fn refresh_status() {
 }
 
 fn daemon_is_running() -> bool {
-    Command::new("pgrep")
-        .args(["-x", "capshift"])
-        .status()
-        .is_ok_and(|status| status.success())
+    // A GUI LaunchAgent cannot reliably inspect the root launchd domain.
+    // launchd adopts a LaunchDaemon directly, giving it parent PID 1; this
+    // deliberately excludes a manually-run `sudo capshift` in a Terminal.
+    Command::new("ps")
+        .args(["-axo", "ppid=,comm="])
+        .output()
+        .is_ok_and(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                    line.split_whitespace().next() == Some("1")
+                        && (line.ends_with("/capshift") || line.ends_with(" capshift"))
+                })
+        })
 }
 
 unsafe fn register_handler() {
@@ -120,11 +129,17 @@ unsafe fn register_handler() {
 }
 
 extern "C" fn reload_driver(_: &Object, _: Sel, _: id) {
-    launch_privileged(format!("launchctl kickstart -k system/{DRIVER_LABEL}"));
+    launch_privileged(
+        format!("launchctl kickstart -k system/{DRIVER_LABEL}"),
+        "VirtualHID driver reloaded",
+    );
 }
 
 extern "C" fn restart_daemon(_: &Object, _: Sel, _: id) {
-    launch_privileged(format!("launchctl kickstart -k system/{DAEMON_LABEL}"));
+    launch_privileged(
+        format!("launchctl kickstart -k system/{DAEMON_LABEL}"),
+        "capshift daemon restarted",
+    );
 }
 
 extern "C" fn edit_config(_: &Object, _: Sel, _: id) {
@@ -147,12 +162,22 @@ extern "C" fn refresh_status_timer(_: &Object, _: Sel, _: id) {
 /// displays an administrator prompt and can wait indefinitely for user input;
 /// doing that on the menu bar's main thread makes macOS treat the agent as
 /// unresponsive. The repeating status timer updates the icon after completion.
-fn launch_privileged(command: String) {
-    std::thread::spawn(move || {
-        if let Err(error) = run_privileged(&command) {
+fn launch_privileged(command: String, success_message: &'static str) {
+    std::thread::spawn(move || match run_privileged(&command) {
+        Ok(()) => show_notification(success_message),
+        Err(error) => {
             eprintln!("capshift-menu: {error:#}");
+            show_notification(&format!("Operation failed: {error:#}"));
         }
     });
+}
+
+fn show_notification(message: &str) {
+    let script = format!(
+        "display notification \"{}\" with title \"capshift\"",
+        applescript_escape(message)
+    );
+    let _ = Command::new("osascript").args(["-e", &script]).status();
 }
 
 fn run_privileged(command: &str) -> Result<()> {
