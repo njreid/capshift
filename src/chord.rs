@@ -92,6 +92,17 @@ impl ChordState {
         self.bindings = bindings;
     }
 
+    /// Forget physical key events whose matching releases were lost.
+    ///
+    /// macOS does not replay key-up events that occurred while the machine
+    /// was asleep.  Without this reset, a Caps Lock down immediately before
+    /// sleep leaves the chord permanently active after wake.
+    pub fn reset(&mut self) {
+        self.active = false;
+        self.remapped.clear();
+        self.fired.clear();
+    }
+
     /// Process one HID key event.
     ///
     /// `hid`  — HID keycode (Usage Page 0x07) of the key.
@@ -265,6 +276,17 @@ mod tests {
         // The key-up for H must still translate to LEFT — the physical key
         // is still "in flight" from before the reload.
         assert_eq!(chord.process(H, false), forwarded(LEFT));
+    }
+
+    #[test]
+    fn reset_clears_a_chord_interrupted_before_caps_key_up() {
+        let mut chord = ChordState::new(CAPS, bindings());
+        chord.process(CAPS, true);
+        chord.reset();
+
+        // This is the first key after wake. It must be interpreted normally,
+        // not as a stale Caps+H chord.
+        assert_eq!(chord.process(H, true), KeyOutcome::Passthrough);
     }
 
     #[test]

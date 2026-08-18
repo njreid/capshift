@@ -21,6 +21,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{bail, Context, Result};
 use tokio::sync::watch;
@@ -41,6 +42,10 @@ type CFRunLoopRef = *mut c_void;
 type CFStringRef = *const c_void;
 type CFAllocatorRef = *mut c_void;
 type CFDictionaryRef = *mut c_void;
+type IONotificationPortRef = *mut c_void;
+type IoConnect = u32;
+type IoService = u32;
+type IoObject = u32;
 
 const kIOReturnSuccess: IOReturn = 0;
 const kIOHIDOptionsTypeNone: u32 = 0x0;
@@ -49,6 +54,14 @@ const kHIDPage_GenericDesktop: u32 = 0x01;
 const kHIDPage_KeyboardOrKeypad: u32 = 0x07;
 const kHIDUsage_GD_Keyboard: u32 = 0x06;
 pub const READY_FILE: &str = "/var/run/capshift.ready";
+
+// Values from IOKit/pwr_mgt/IOPMLib.h. We acknowledge sleep requests and
+// reset our synthetic state after the system has resumed.
+const K_IO_MESSAGE_CAN_SYSTEM_SLEEP: u32 = 0x0000_0001;
+const K_IO_MESSAGE_SYSTEM_WILL_SLEEP: u32 = 0x0000_0002;
+const K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON: u32 = 0x0000_0004;
+
+static POWER_ROOT_PORT: AtomicU32 = AtomicU32::new(0);
 
 type IOHIDDeviceCallback = unsafe extern "C" fn(
     context: *mut c_void,
@@ -61,6 +74,12 @@ type IOHIDValueCallback = unsafe extern "C" fn(
     result: IOReturn,
     sender: *mut c_void,
     value: IOHIDValueRef,
+);
+type IOServiceInterestCallback = unsafe extern "C" fn(
+    context: *mut c_void,
+    service: IoService,
+    message_type: u32,
+    message_argument: *mut c_void,
 );
 
 #[link(name = "IOKit", kind = "framework")]
@@ -90,6 +109,15 @@ extern "C" {
     fn IOHIDElementGetUsage(element: IOHIDElementRef) -> u32;
     fn IOHIDElementGetUsagePage(element: IOHIDElementRef) -> u32;
     fn IOHIDDeviceGetProperty(device: IOHIDDeviceRef, key: CFStringRef) -> *const c_void;
+    fn IOPMRegisterForSystemPower(
+        refcon: *mut c_void,
+        notification_port: *mut IONotificationPortRef,
+        callback: IOServiceInterestCallback,
+        root_port: *mut IoConnect,
+    ) -> IoObject;
+    fn IONotificationPortGetRunLoopSource(port: IONotificationPortRef) -> *mut c_void;
+    fn CFRunLoopAddSource(run_loop: CFRunLoopRef, source: *mut c_void, mode: CFStringRef);
+    fn IOAllowPowerChange(root_port: IoConnect, notification_id: usize) -> IOReturn;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -269,6 +297,29 @@ unsafe extern "C" fn value_available(
     });
 }
 
+unsafe extern "C" fn power_changed(
+    _context: *mut c_void,
+    _service: IoService,
+    message_type: u32,
+    message_argument: *mut c_void,
+) {
+    match message_type {
+        K_IO_MESSAGE_CAN_SYSTEM_SLEEP | K_IO_MESSAGE_SYSTEM_WILL_SLEEP => {
+            let root_port = POWER_ROOT_PORT.load(Ordering::Relaxed);
+            if root_port != 0 {
+                let _ = IOAllowPowerChange(root_port, message_argument as usize);
+            }
+        }
+        K_IO_MESSAGE_SYSTEM_HAS_POWERED_ON => HID_STATE.with(|cell| {
+            if let Some(state) = cell.borrow_mut().as_mut() {
+                reset_input_state(state);
+                info!("capshift: cleared interrupted keyboard state after wake");
+            }
+        }),
+        _ => {}
+    }
+}
+
 fn forward(state: &mut HidState, hid: u8, down: bool) {
     if down {
         state.virtual_pressed.insert(hid);
@@ -287,6 +338,16 @@ fn post(state: &HidState) {
     if let Err(e) = state.kvhd.post_report(&report) {
         warn!("capshift: KVHD post_report failed: {e}");
     }
+}
+
+/// Drop physical state whose matching key-up events were lost during sleep,
+/// then explicitly release every virtual key that capshift may have injected.
+fn reset_input_state(state: &mut HidState) {
+    state.chord.reset();
+    state.virtual_pressed.clear();
+    state.modifier_bits = 0;
+    state.suppressed_modifiers.clear();
+    post(state);
 }
 
 /// Run the macOS keyboard interception loop. Blocks until an error occurs.
@@ -395,7 +456,26 @@ pub fn run(cfg_rx: watch::Receiver<BindingMap>) -> Result<()> {
 
         IOHIDManagerRegisterDeviceMatchingCallback(mgr, device_added, std::ptr::null_mut());
         IOHIDManagerRegisterInputValueCallback(mgr, value_available, std::ptr::null_mut());
-        IOHIDManagerScheduleWithRunLoop(mgr, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+        let run_loop = CFRunLoopGetCurrent();
+        IOHIDManagerScheduleWithRunLoop(mgr, run_loop, kCFRunLoopDefaultMode);
+
+        let mut notification_port = std::ptr::null_mut();
+        let mut root_port = 0;
+        let notifier = IOPMRegisterForSystemPower(
+            std::ptr::null_mut(),
+            &mut notification_port,
+            power_changed,
+            &mut root_port,
+        );
+        if notifier == 0 || notification_port.is_null() || root_port == 0 {
+            bail!("IOPMRegisterForSystemPower failed");
+        }
+        POWER_ROOT_PORT.store(root_port, Ordering::Relaxed);
+        CFRunLoopAddSource(
+            run_loop,
+            IONotificationPortGetRunLoopSource(notification_port),
+            kCFRunLoopDefaultMode,
+        );
 
         // Seize on the manager's initial open. Opening the manager normally
         // and then calling IOHIDDeviceOpen(SeizeDevice) from device_added can
