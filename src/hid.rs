@@ -109,12 +109,12 @@ extern "C" {
     fn IOHIDElementGetUsage(element: IOHIDElementRef) -> u32;
     fn IOHIDElementGetUsagePage(element: IOHIDElementRef) -> u32;
     fn IOHIDDeviceGetProperty(device: IOHIDDeviceRef, key: CFStringRef) -> *const c_void;
-    fn IOPMRegisterForSystemPower(
+    fn IORegisterForSystemPower(
         refcon: *mut c_void,
         notification_port: *mut IONotificationPortRef,
         callback: IOServiceInterestCallback,
-        root_port: *mut IoConnect,
-    ) -> IoObject;
+        notifier: *mut IoObject,
+    ) -> IoConnect;
     fn IONotificationPortGetRunLoopSource(port: IONotificationPortRef) -> *mut c_void;
     fn CFRunLoopAddSource(run_loop: CFRunLoopRef, source: *mut c_void, mode: CFStringRef);
     fn IOAllowPowerChange(root_port: IoConnect, notification_id: usize) -> IOReturn;
@@ -460,15 +460,15 @@ pub fn run(cfg_rx: watch::Receiver<BindingMap>) -> Result<()> {
         IOHIDManagerScheduleWithRunLoop(mgr, run_loop, kCFRunLoopDefaultMode);
 
         let mut notification_port = std::ptr::null_mut();
-        let mut root_port = 0;
-        let notifier = IOPMRegisterForSystemPower(
+        let mut notifier = 0;
+        let root_port = IORegisterForSystemPower(
             std::ptr::null_mut(),
             &mut notification_port,
             power_changed,
-            &mut root_port,
+            &mut notifier,
         );
-        if notifier == 0 || notification_port.is_null() || root_port == 0 {
-            bail!("IOPMRegisterForSystemPower failed");
+        if notification_port.is_null() || root_port == 0 {
+            bail!("IORegisterForSystemPower failed");
         }
         POWER_ROOT_PORT.store(root_port, Ordering::Relaxed);
         CFRunLoopAddSource(
