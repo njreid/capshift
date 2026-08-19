@@ -20,6 +20,7 @@ use std::sync::Once;
 
 const DAEMON_LABEL: &str = "homebrew.mxcl.capshift";
 const DRIVER_LABEL: &str = "dev.njreid.capshift.kvhd";
+const DRIVER_PLIST: &str = "/Library/LaunchDaemons/dev.njreid.capshift.kvhd.plist";
 const CONFIG_PATH: &str = "/Library/Application Support/capshift/config.kdl";
 
 static REGISTER_HANDLER: Once = Once::new();
@@ -40,6 +41,11 @@ pub fn run() -> Result<()> {
 
         let handler: id = msg_send![class!(CapshiftMenuHandler), new];
         let menu = NSMenu::new(nil).autorelease();
+        menu.addItem_(menu_item(
+            "Reset Keyboard Path",
+            sel!(resetKeyboardPath:),
+            handler,
+        ));
         menu.addItem_(menu_item("Reload Driver", sel!(reloadDriver:), handler));
         menu.addItem_(menu_item("Restart Daemon", sel!(restartDaemon:), handler));
         menu.addItem_(menu_item("Edit Config", sel!(editConfig:), handler));
@@ -109,6 +115,10 @@ unsafe fn register_handler() {
         let mut decl = ClassDecl::new("CapshiftMenuHandler", superclass)
             .expect("CapshiftMenuHandler class name must be unused");
         decl.add_method(
+            sel!(resetKeyboardPath:),
+            reset_keyboard_path as extern "C" fn(&Object, Sel, id),
+        );
+        decl.add_method(
             sel!(reloadDriver:),
             reload_driver as extern "C" fn(&Object, Sel, id),
         );
@@ -126,6 +136,22 @@ unsafe fn register_handler() {
         );
         decl.register();
     });
+}
+
+extern "C" fn reset_keyboard_path(_: &Object, _: Sel, _: id) {
+    // A simple kickstart leaves the driver's existing socket and virtual
+    // keyboard registration in place. After wake either may be stale, so
+    // fully remove and re-bootstrap the VirtualHID service before restarting
+    // capshift to seize the physical keyboard again.
+    launch_privileged(
+        format!(
+            "launchctl bootout system/{DRIVER_LABEL} 2>/dev/null || true; \
+             launchctl bootstrap system '{DRIVER_PLIST}'; \
+             sleep 2; \
+             launchctl kickstart -k system/{DAEMON_LABEL}"
+        ),
+        "Keyboard path reset",
+    );
 }
 
 extern "C" fn reload_driver(_: &Object, _: Sel, _: id) {

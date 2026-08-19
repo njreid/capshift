@@ -30,9 +30,12 @@ Approve the DriverKit extension when macOS asks, then add `capshift` to
 interceptor must remain root-owned because the VirtualHID daemon accepts only
 root clients; the separate menu-bar companion runs in your login session.
 
-The menu icon is `⇪` while the daemon is running and `⇪!` otherwise. Its menu
-can reload the VirtualHID driver, restart the root daemon, and open the shared
-configuration in Terminal using `EDITOR` (with an administrator prompt).
+The menu icon is `⇪` while the daemon is running and `⇪!` otherwise. Its
+**Reset Keyboard Path** command fully reboots the VirtualHID service and
+restarts the root daemon, which is useful if input is unavailable after wake;
+it also offers individual driver reload, daemon restart, and shared
+configuration editing in Terminal using `EDITOR` (with an administrator
+prompt).
 
 ### Check and repair installation
 
